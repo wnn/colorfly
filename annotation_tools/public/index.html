@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>webserver.py test</title>
+    <!-- Define my own favicon.ico using PNG format. -->
+    <!-- Works in FF and Chrome. -->
+    <link rel="icon" type="image/png" href="webserver.png">
+    <link href="webserver.css" rel="stylesheet">
+    <!--<script src="webserver.js"></script> -->
+    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" rel="stylesheet"/>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.0/jquery.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>
+  </head>
+  <body>
+    <div class="page">
+
+      <!-- HEADER -->
+      <div class="bgcolor1">
+	<table width="100%">
+	  <tbody>
+	    <tr valign="middle">
+	      <td class="header_left">
+		<img src="webserver.png" width="64" height="64">
+	      </td>
+	      <td style="text-align: left">
+		<h2>Simple Web Server</h2>
+	      </td>
+	    </tr>
+	  </tbody>
+	</table>
+      </div>
+
+      <!-- BODY -->
+      <div>
+
+	<fieldset>
+      <div id="content"> </div>
+	    <p>&nbsp;</p>
+      </div>
+
+      <!-- FOOTER -->
+	<div id="myfooter">
+	</div>
+      </div>
+      <script src="https://unpkg.com/react@15/dist/react.js"></script>
+      <script src="https://unpkg.com/react-dom@15/dist/react-dom.js"></script>
+      <script src="http://fb.me/JSXTransformer-0.12.1.js"></script>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/react-bootstrap/0.30.7/react-bootstrap.js"></script>
+      <script src="https://unpkg.com/react-router/umd/ReactRouter.min.js"></script>
+      <script type="text/jsx">
+
+      var Router = ReactRouter.Router,
+      Route = ReactRouter.Router,
+      Link = ReactRouter.Link,
+      IndexRoute = ReactRouter.IndexRoute,
+      hashHistory = ReactRouter.hashHistory,
+      browserHistory = ReactRouter.browserHistory;
+
+
+	    var App = React.createClass({
+      contextTypes: {
+           router: React.PropTypes.object.isRequired
+      },
+      getInitialState: function() {
+        return {
+            imageFile: null,
+            annotation: null,
+            objects: [],
+            templateList: ["All"],
+            activeTemplate: "All",
+            mouseActive: false,
+            scale : 1.6
+      }
+	    },
+      //not sure how to implement back button without redux
+      // componentWillReceiveProps : function (){
+      // },
+      componentDidMount : function() {
+        //retrieve current image token from url
+        var curImageFile = this.props.params.imageFile;
+        if (typeof curImageFile != 'undefined'){
+        } else {
+          curImageFile = "GetFirstImage"
+        }
+        //request current image information
+        this.fetchJson('image', curImageFile, this.showImage);
+        this.fetchJson('templatelist', curImageFile, this.showTemplateList);
+      },
+      //use this function to retrieve per directory list of templates
+	    showTemplateList: function(response){
+        if(response.length > 0) {
+          response.unshift("All");
+		      this.setState({
+            templateList: response,
+            activeTemplate: response[0]
+		      });
+        } else {
+          this.setState({
+            templateList: ["All"],
+            activeTemplate: "All"
+		      });
+        }
+	    },
+      onTemplateChanged: function (e) {
+        this.setState({
+          activeTemplate: e.currentTarget.value
+          });
+      },
+      showImage: function(response){
+        this.context.router.push('/label/' + response.file);
+        if(response.annotation != null) {
+		      this.setState({
+		      imageFile: response.file,
+          annotation: response.annotation,
+          objects: response.annotation["objects"]
+		      })
+        } else {
+          this.setState({
+		      imageFile: response.file,
+          annotation: null,
+          objects: []
+		      })
+        }
+	    },
+	    fetchJson: function(URL, token, action){
+  		  $.ajax({
+  		    type: "GET",
+  		    dataType: 'json',
+          contentType: "application/json",
+          data: "token="+token,
+  		    url: '/'+URL,
+  		    success: function(response){
+  			      action(response);
+  		    }.bind(this),
+          error: function(xhr, status, err) {
+              console.error(URL, status, err.toString());
+          }.bind(this)
+  		    });
+	    },
+      saveAndRequestNextImage : function(URL, action){
+        //first send annotation result back
+        var annotatedJson = {"count": this.state.objects.length, "objects": this.state.objects};
+        $.ajax({
+            type: 'POST',
+            url: '/save/' + this.state.imageFile,
+            contentType: "application/json",
+            dataType: 'json',
+            data:  JSON.stringify(annotatedJson),
+          success : function(data) {
+            this.fetchJson(URL, this.state.imageFile, action);
+          }.bind(this),
+          error : function(xhr, status, err) {
+            console.error("post", status, err.toString());
+          }.bind(this)
+          });
+      },
+      onCanvasMouseDown: function(event) {
+        if(this.state.activeTemplate == "All") return;
+        var objs = this.state.objects;
+        var pos = getMousePos( ReactDOM.findDOMNode(this.refs.stage), event);
+        pos.x = pos.x / this.state.scale;
+        pos.y = pos.y / this.state.scale;
+        var activeType = templateFile2Type(this.state.activeTemplate);
+        if(event.button == 2)  { //right mouse down
+          removeSelectedObj(pos, objs, activeType);
+          this.setState({objects: objs});
+        }
+        else if(event.button == 0)  { //left mouse down
+          objs.push({"key":1, "bbox":{"angle":0,"center_x":pos.x ,"center_y":pos.y ,
+          "height":1,"width":1},"type":activeType});
+          this.setState({objects: objs,
+                        mouseActive: true,
+                        activeRectTopLeft: pos});
+        }
+      },
+      onCanvasMouseUp: function(event) {
+        this.setState({mouseActive: false});
+      },
+      onCanvasMouseMove: function(event) {
+        if(this.state.mouseActive == false) return;
+        var objs = this.state.objects;
+        activeObj = objs[objs.length-1];
+        var pos = getMousePos( ReactDOM.findDOMNode(this.refs.stage), event);
+        pos.x = pos.x / this.state.scale;
+        pos.y = pos.y / this.state.scale;
+        var topLeft = { x:this.state.activeRectTopLeft.x ,y : this.state.activeRectTopLeft.y } ;
+
+        if(pos.x < topLeft.x) {
+          [pos.x, topLeft.x] = [topLeft.x, pos.x] ;
+        }
+        if(pos.y < topLeft.y) {
+          [pos.y, topLeft.y] = [topLeft.y, pos.y] ;
+        }
+        activeObj['bbox']["center_x"] = (topLeft.x + pos.x) / 2 ;
+        activeObj['bbox']["center_y"] = (topLeft.y + pos.y) / 2 ;
+        activeObj['bbox']["width"]  = (pos.x - topLeft.x ) ;
+        activeObj['bbox']["height"] = (pos.y - topLeft.y ) ;
+        this.setState({objects: objs});
+        //console.log("hehe" + this.state.objects[objs.length-1]["width"] );
+      },
+      onContextMenu: function(e) {
+        //disable default context menu
+        e.preventDefault();
+      },
+      onImageLoad: function(target) {
+        //scale calculated based on real image size
+        var $img = $("#myImage")
+        this.setState({scale: $img.prop("height") / $img.prop("naturalHeight")});
+      },
+	    render: function(){
+        let image = null;
+        if(this.state.imageFile != null){
+          image = <img id={'myImage'} className='img' src={this.state.imageFile} onLoad={this.onImageLoad} width={"640px"} height={"480px"}/>;
+        }
+
+        var Grid = ReactBootstrap.Grid,
+        Row  = ReactBootstrap.Row,
+        Col  = ReactBootstrap.Col;
+
+
+        return (
+        <Grid>
+        <Row>
+          <Col xs={12} md={8} id={"container"} >
+              {image}
+              <svg id={"myCanvas"} ref="stage" width={640} height={480} onMouseDown={this.onCanvasMouseDown}
+              onMouseUp ={this.onCanvasMouseUp} onMouseMove = {this.onCanvasMouseMove} onContextMenu={this.onContextMenu} >
+              {
+                this.state.objects.map(function(obj, i) {
+                if( this.state.activeTemplate != "All" && this.state.activeTemplate.includes(obj["type"]) == false) return null;
+                var scale = this.state.scale;
+                var bbox = obj["bbox"];
+                var cx = bbox["center_x"]*scale;
+                var cy = bbox["center_y"]*scale;
+                var h = bbox["height"]*scale;
+                var w = bbox["width"]*scale;
+                var typeCode = Math.floor((hashCode(obj["type"]) % 1000000) / 10000);
+                return <rect key={i} x={cx-w/2} y={cy-h/2} width={w} height={h} transform={'rotate (' + bbox["angle"] + ','+ cx +','+ cy + ')'}
+                 fill={"red"} stroke={'hsl(' + typeCode + ', 100%, 50%)'} strokeWidth={2} fillOpacity={0.1}  />
+               }, this)
+              }
+              </svg>
+          </Col>
+          <Col xs={4} md={4}  id={"panel"} >
+              <NavButton url = {"previmage"} action = {this.showImage} callback={this.saveAndRequestNextImage}/>
+              <NavButton url = {"nextimage"} action = {this.showImage} callback={this.saveAndRequestNextImage}/>
+              <TemplateRadioButtons data = {this.state.templateList} activeTemplate = {this.state.activeTemplate}
+              onTemplateChanged = {this.onTemplateChanged}/>
+          </Col>
+        </Row>
+        </Grid>
+		    );
+	    },
+//          <br id={"holder"}/>
+
+//      <canvas id={"myCanvas"} ref="stage" width={"640px"} height={"480px"} onClick={this.onCanvasClick}/>
+//
+
+	});
+
+  const Home = () => <h1>Hello from Home!</h1>
+  const Address = () => <h1>We are located at 555 Jackson St.</h1>
+
+	var NavButton = React.createClass({
+
+	    render: function(){
+      return (
+      <div>
+          <input type={"submit"} value={this.props.url} onClick={this.createAjax} />
+      </div>
+      );},
+      //          <input type="text" ref="query" />
+      //          <select ref="category">
+      //      			    <option value="software">Apps</option>
+      //      			    <option value="movie">Films</option>
+      //      			</select>
+	    createAjax: function(){
+//		var query    = ReactDOM.findDOMNode(this.refs.query).value;
+//		var category = ReactDOM.findDOMNode(this.refs.category).value;
+		      this.props.callback(this.props.url, this.props.action);
+	    }
+
+	});
+
+
+   var TemplateRadioButtons = React.createClass({
+
+    render: function(){
+          var resultRows = this.props.data.map(function(result, i){
+              return (
+                <tbody key={i} >
+                 <tr>
+                           <td><input type="radio" name="site_name"
+                                      value={result}
+                                      checked={this.props.activeTemplate == result}
+                                      onChange={this.props.onTemplateChanged} />{result}</td>
+                 </tr>
+                 </tbody>
+              );
+          }, this);
+         return (
+                  <div>
+                  <table className="table">
+                  {resultRows}
+                  </table>
+                  </div>
+         );
+    }
+  });
+
+  ReactDOM.render((
+    <Router history={hashHistory}>
+    <Route path="/" component={App}/>
+      <Route path="/label/:imageFile" component={App}/>
+    </Router>
+  ), document.getElementById('content'));
+//        ReactDOM.render(<App />,  document.getElementById("content"));
+
+      </script>
+
+
+
+      <script>
+          function hashCode(str) {
+            return str.split('').reduce((prevHash, currVal) =>
+                  ((prevHash << 5) - prevHash) + currVal.charCodeAt(0), 0);
+          }
+          // get mouse pos relative to canvas (yours is fine, this is just different)
+          function getMousePos(canvas, evt) {
+            var rect = canvas.getBoundingClientRect();
+            return {
+              x: evt.clientX - rect.left,
+              y: evt.clientY - rect.top
+            };
+          }
+          function templateFile2Type(template){
+            var regex = /template_(.*).json/g;
+            var found = regex.exec(template)[1];
+            return found;
+          }
+          function removeSelectedObj(mousePos, objs, activeType) {
+            for( var i = 0 ; i < objs.length ; i++) {
+              if(objs[i]["type"] != activeType) continue;
+              var bbox = objs[i]["bbox"];
+              var center = { x:bbox.center_x , y:bbox.center_y };
+              var diff = vector(center, mousePos);
+              var distance2 = dot(diff,diff);
+              if(distance2 < bbox.width*bbox.width/4 && distance2 < bbox.height*bbox.height/4 ){
+                //mousePos is close enough to the center of bbox
+                objs.splice(i, 1);
+                return;
+              }
+            }
+          }
+
+          function vector(p1, p2) {
+              return {
+                      x: (p2.x - p1.x),
+                      y: (p2.y - p1.y)
+              };
+          }
+
+          function dot(u, v) {
+              return u.x * v.x + u.y * v.y;
+          }
+
+      </script>
+
+  </body>
+
+</html>
